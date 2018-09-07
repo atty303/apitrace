@@ -30,6 +30,7 @@
 #include <limits.h> // for CHAR_MAX
 #include <memory> // for unique_ptr
 #include <iostream>
+#include <sstream>
 #include <regex>
 #include <getopt.h>
 #ifndef _WIN32
@@ -55,6 +56,7 @@
 #include "state_writer.hpp"
 #include "ws.hpp"
 #include "process_name.hpp"
+#include "ubjson.hpp"
 
 
 static bool waitOnFinish = false;
@@ -295,10 +297,29 @@ retraceCall(trace::Call *call) {
 
     if (call->no >= dumpStateCallNo &&
         dumper->canDump()) {
-        StateWriter *writer = stateWriterFactory(std::cout);
+
+        bool dump = false;
+        const char *colon = ::strrchr(call->sig->name, ':');
+        if (colon && !strcmp(colon, ":SetTexture")) {
+            if (call->args.size() == 3 && call->arg(1).toSInt() == 0 && call->arg(2).toPointer() != nullptr) {
+                dump = true;
+            }
+        }
+        
+        if (!dump) return;
+        fprintf(stderr, "%u %s\n", call->no, call->sig->name);
+
+        std::stringstream s;
+        StateWriter *writer = stateWriterFactory(s);
         dumper->dumpState(*writer);
         delete writer;
-        exit(0);
+        
+        std::string buf = s.str();
+        uint32_t size = ubjson::bigEndian32(buf.length());
+        std::cout.write((const char *)&size, sizeof(uint32_t));
+        std::cout << buf;
+        
+        //exit(0);
     }
 }
 
